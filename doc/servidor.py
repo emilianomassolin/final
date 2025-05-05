@@ -39,7 +39,7 @@ async def iniciar_servidor(host, puerto):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="localhost")
-    parser.add_argument("--port", type=int, default=8888)
+    parser.add_argument("--port", type=int, default=65432)
     parser.add_argument("--workers", type=int, default=2)
     args = parser.parse_args()
 
