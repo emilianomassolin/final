@@ -35,6 +35,24 @@ def main():
     parser.add_argument("--workers", type=int, default=2)
     args = parser.parse_args()
 
-    
+    # Crear procesos worker
+    procesos = []
+    for _ in range(args.workers):
+        p = Process(target=worker, args=(cola_pedidos,))
+        p.start()
+        procesos.append(p)
+
+    try:
+        asyncio.run(iniciar_servidor(args.host, args.port))
+    except KeyboardInterrupt:
+        print("\n[SERVER] Cerrando servidor...")
+    finally:
+        # Detener los workers
+        for _ in procesos:
+            cola_pedidos.put(None)
+        for p in procesos:
+            p.join()
+        print("[SERVER] Servidor finalizado.")
+
 if __name__ == "__main__":
     main()
