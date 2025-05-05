@@ -17,7 +17,15 @@ def worker(cola):
         time.sleep(2)
         print(f"[WORKER] Pedido completado: {pedido}")
 
-
+# --- Función para manejar clientes ---
+async def manejar_cliente(reader, writer):
+    data = await reader.read(1024)
+    pedido = data.decode()
+    print(f"[SERVER] Pedido recibido: {pedido}")
+    cola_pedidos.put(pedido)
+    writer.write("Pedido recibido y encolado".encode())
+    await writer.drain()
+    writer.close()
 
 # --- Main Async para servidor ---
 async def iniciar_servidor(host, puerto):
