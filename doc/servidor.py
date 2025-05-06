@@ -4,7 +4,7 @@ from multiprocessing import Queue, Process
 import argparse
 import time
 
-# Cola compartida entre procesos
+# Cola compartida entre procesos Se usa una cola compartida entre procesos (multiprocessing.Queue) para que los pedidos que llegan de distintos clientes puedan ser procesados por múltiples workers.
 cola_pedidos = Queue()
 
 # --- Worker que procesa pedidos ---
