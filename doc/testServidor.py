@@ -26,7 +26,7 @@ def main():
     for t in threads:
         t.join()
 
-    print("\n✅ Test completado.")
+    print("\n Test completado.")
 
 if __name__ == "__main__":
     main()

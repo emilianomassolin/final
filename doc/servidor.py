@@ -4,10 +4,10 @@ from multiprocessing import Queue, Process
 import argparse
 import time
 
-# Cola compartida entre procesos Se usa una cola compartida entre procesos (multiprocessing.Queue) para que los pedidos que llegan de distintos clientes puedan ser procesados por múltiples workers.
+# Cola compartida entre procesos Se usa una cola compartida entre procesos (multiprocessing.Queue) 
 cola_pedidos = Queue()
 
-# --- Worker que procesa pedidos ---
+# Worker que procesa pedidos de la cola
 def worker(cola):
     while True:
         pedido = cola.get()
@@ -17,7 +17,7 @@ def worker(cola):
         time.sleep(2)
         print(f"[WORKER] Pedido completado: {pedido}")
 
-# --- Función para manejar clientes ---
+# Función para manejar clientes en forma asíncrona
 async def manejar_cliente(reader, writer):
     data = await reader.read(1024)
     pedido = data.decode()
@@ -27,7 +27,7 @@ async def manejar_cliente(reader, writer):
     await writer.drain()
     writer.close()
 
-# --- Main Async para servidor ---
+# Función  Async para iniciar el servidor
 async def iniciar_servidor(host, puerto):
     server = await asyncio.start_server(manejar_cliente, host, puerto)
     addrs = ", ".join(str(sock.getsockname()) for sock in server.sockets)

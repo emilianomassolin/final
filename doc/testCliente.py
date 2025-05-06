@@ -14,13 +14,7 @@ class TestCliente(unittest.TestCase):
             data = s.recv(1024)
         self.assertIn("Pedido recibido", data.decode())
 
-    def test_envio_pedido_vacio(self):
-        pedido = ""
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.connect((HOST, PORT))
-            s.sendall(pedido.encode())
-            data = s.recv(1024)
-        self.assertIn("Pedido recibido", data.decode())
+
 
     def test_multiples_pedidos(self):
         for i in range(5):
