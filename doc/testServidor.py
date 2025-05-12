@@ -1,6 +1,9 @@
 import socket
 import time
 import threading
+import json
+import unittest
+import argparse
 
 HOST = '127.0.0.1'
 PORT = 65432
@@ -27,6 +30,34 @@ def main():
         t.join()
 
     print("\n Test completado.")
+
+class TestClienteIPv4IPv6(unittest.TestCase):
+
+    def enviar_pedido(self, mensaje):
+        infos = socket.getaddrinfo(HOST, PORT, type=socket.SOCK_STREAM)
+        for info in infos:
+            af, socktype, proto, canonname, sa = info
+            try:
+                with socket.socket(af, socktype, proto) as s:
+                    s.connect(sa)
+                    s.sendall(mensaje.encode())
+                    respuesta = s.recv(1024).decode()
+                    return respuesta
+            except Exception as e:
+                continue
+        return None
+def test_pedido_ipv4_ipv6(self):
+
+        pedido = {
+            "cliente": "Test IPv4/IPv6",
+            "productos": ["pizza", "gaseosa"],
+            "direccion": "Calle IPvX 456"
+        }
+        mensaje = json.dumps(pedido)
+        respuesta = self.enviar_pedido(mensaje)
+        self.assertIsNotNone(respuesta)
+        self.assertIn("Pedido recibido", respuesta)
+
 
 if __name__ == "__main__":
     main()

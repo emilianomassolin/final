@@ -3,6 +3,7 @@ import multiprocessing
 from multiprocessing import Queue, Process
 import argparse
 import time
+import socket
 
 # Cola compartida entre procesos Se usa una cola compartida entre procesos (multiprocessing.Queue) 
 cola_pedidos = Queue()
@@ -29,11 +30,25 @@ async def manejar_cliente(reader, writer):
 
 # Función  Async para iniciar el servidor
 async def iniciar_servidor(host, puerto):
-    server = await asyncio.start_server(manejar_cliente, host, puerto)
-    addrs = ", ".join(str(sock.getsockname()) for sock in server.sockets)
-    print(f"[SERVER] Escuchando en {addrs}")
-    async with server:
-        await server.serve_forever()
+    infos = socket.getaddrinfo(host, puerto, type=socket.SOCK_STREAM)
+    servers = []
+
+    for family, type_, proto, canonname, sockaddr in infos:
+        try:
+            server = await asyncio.start_server(
+                manejar_cliente,
+                host=sockaddr[0],
+                port=sockaddr[1],
+                family=family
+            )
+            addrs = ", ".join(str(sock.getsockname()) for sock in server.sockets)
+            print(f"[SERVER] Escuchando en {addrs}")
+            servers.append(server)
+        except Exception as e:
+            print(f"[SERVER] No se pudo iniciar en {sockaddr}: {e}")
+
+    await asyncio.gather(*(server.serve_forever() for server in servers))
+
 
 # --- Main principal con argumentos y procesos ---
 def main():

@@ -21,12 +21,22 @@ def main():
     }
 
     try:
-        with socket.create_connection((args.host, args.port)) as sock:
-            mensaje = json.dumps(pedido).encode()
-            sock.sendall(mensaje)
-            print("Pedido enviado correctamente.")
-    except ConnectionRefusedError:
-        print("No se pudo conectar al servidor.")
+        infos = socket.getaddrinfo(args.host, args.port, type=socket.SOCK_STREAM)
+        for info in infos:
+            af, socktype, proto, canonname, sa = info
+            try:
+                with socket.socket(af, socktype, proto) as s:
+                    s.connect(sa)
+                    mensaje = json.dumps(pedido).encode()
+                    s.sendall(mensaje)
+                    print("Pedido enviado correctamente.")
+                    break
+            except OSError:
+                continue
+        else:
+            print("No se pudo conectar al servidor.")
+    except Exception as e:
+        print(f"Error al procesar el pedido: {e}")
 
 
 if __name__ == '__main__':
