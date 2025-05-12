@@ -20,6 +20,12 @@ def worker(cola):
 
 # --- Función para manejar clientes ---
 async def manejar_cliente(reader, writer):
+    writer.write('Bienvenido al Servidor de Pedidos\nPor favor envíe un JSON válido del tipo \n'
+             '{"cliente": nombre,\n'
+             '"productos": productos.split(","),\n'
+             '"direccion": direccion\n'
+             '}.\n'.encode("utf-8"))
+    await writer.drain()
     data = await reader.read(1024)
     pedido = data.decode()
     print(f"[SERVER] Pedido recibido: {pedido}")
