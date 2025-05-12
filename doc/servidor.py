@@ -1,9 +1,11 @@
 import asyncio
+import json
 import multiprocessing
 from multiprocessing import Queue, Process
 import argparse
 import time
 import socket
+
 
 # Cola compartida entre procesos
 cola_pedidos = Queue()
@@ -20,19 +22,34 @@ def worker(cola):
 
 # --- Función para manejar clientes ---
 async def manejar_cliente(reader, writer):
-    writer.write('Bienvenido al Servidor de Pedidos\nPor favor envíe un JSON válido del tipo \n'
-             '{"cliente": nombre,\n'
-             '"productos": productos.split(","),\n'
-             '"direccion": direccion\n'
-             '}.\n'.encode("utf-8"))
-    await writer.drain()
-    data = await reader.read(1024)
-    pedido = data.decode()
-    print(f"[SERVER] Pedido recibido: {pedido}")
-    cola_pedidos.put(pedido)
-    writer.write("Pedido recibido y encolado".encode())
-    await writer.drain()
-    writer.close()
+    try:
+        # Enviar mensaje de bienvenida
+        writer.write('Bienvenido al Servidor de Pedidos\nPor favor envíe un JSON válido del tipo \n'
+                     '{"cliente": "nombre",'
+                     '"productos": ["productos"],'
+                     '"direccion": "direccion"}\n'
+                     .encode("utf-8"))
+        await writer.drain()
+
+        # Leer datos del cliente
+        data = await reader.read(1024)
+        pedido = data.decode()
+        print(f"[SERVER] Pedido recibido: {pedido}")
+
+        # Intentar procesar el JSON
+        try:
+            pedido_data = json.loads(pedido)
+            cola_pedidos.put(pedido_data)
+            writer.write("Pedido recibido y encolado\n".encode("utf-8"))
+        except json.JSONDecodeError:
+            writer.write("Error: El mensaje no es un JSON válido.\n".encode("utf-8"))
+
+        await writer.drain()
+    except Exception as e:
+        print(f"[SERVER] Error manejando cliente: {e}")
+    finally:
+        writer.close()
+        await writer.wait_closed()
 
 # --- Servidor dual-stack (IPv4 + IPv6) ---
 async def iniciar_servidor_dualstack(host, port):
