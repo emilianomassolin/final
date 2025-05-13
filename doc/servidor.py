@@ -9,8 +9,7 @@ import os
 import sqlite3
 
 
-# Cola compartida entre procesos
-cola_pedidos = Queue()
+
 
 # Inicializar base de datos SQLite
 DB_PATH = "db/pedidos.db"
@@ -31,18 +30,23 @@ def inicializar_db():
     conn.commit()
     conn.close()
 def guardar_en_db(pedido):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute(
-        "INSERT INTO pedidos (cliente, productos, direccion, timestamp) VALUES (?, ?, ?, datetime('now'))",
-        (
-            pedido.get("cliente", "desconocido"),
-            ", ".join(pedido.get("productos", [])),
-            pedido.get("direccion", "")
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO pedidos (cliente, productos, direccion, timestamp) VALUES (?, ?, ?, datetime('now'))",
+            (
+                pedido.get("cliente", "desconocido"),
+                ", ".join(pedido.get("productos", [])),
+                pedido.get("direccion", "")
+            )
         )
-    )
-    conn.commit()
-    conn.close()
+        conn.commit()
+        print(f"[DB] Pedido guardado: {pedido}")
+    except Exception as e:
+        print(f"[DB] Error al guardar el pedido: {e}")
+    finally:
+        conn.close()
 
 # --- Proceso dedicado para manejar la base de datos ---
 def proceso_db(cola_db):
@@ -51,6 +55,7 @@ def proceso_db(cola_db):
         pedido = cola_db.get()
         if pedido is None:  # Señal para terminar el proceso
             break
+        print(f"[DB] Guardando pedido en la base de datos: {pedido}")
         guardar_en_db(pedido)
 
 # --- Worker que procesa pedidos ---
@@ -64,42 +69,37 @@ def worker(cola_pedidos, cola_db):
         cola_db.put(pedido)  # Envía el pedido a la cola de la base de datos
         print(f"[WORKER] Pedido enviado a la base de datos: {pedido}")
 
-# --- Función para manejar clientes ---
-async def manejar_cliente(reader, writer):
-    try:
-        # Enviar mensaje de bienvenida
-        writer.write('Bienvenido al Servidor de Pedidos\nPor favor envíe un JSON válido del tipo \n'
-                     '{"cliente": "nombre",'
-                     '"productos": ["productos"],'
-                     '"direccion": "direccion"}\n'
-                     .encode("utf-8"))
-        await writer.drain()
-
-        # Leer datos del cliente
-        data = await reader.read(1024)
-        pedido = data.decode()
-        print(f"[SERVER] Pedido recibido: {pedido}")
-
-        # Pedido en formato JSON
+async def iniciar_servidor_dualstack(host, port, cola_pedidos):
+    async def manejar_cliente(reader, writer):
         try:
-            pedido_data = json.loads(pedido)
-            cola_pedidos.put(pedido_data)
-            writer.write("Pedido recibido y encolado\n".encode("utf-8"))
-        except json.JSONDecodeError:
-            writer.write("Error: El mensaje no es un JSON válido.\n".encode("utf-8"))
+            # Enviar mensaje de bienvenida
+            writer.write("Bienvenido al Servidor de Pedidos\nEnvíe un JSON...\n".encode("utf-8"))
+            await writer.drain()
 
-        await writer.drain()
-    except Exception as e:
-        print(f"[SERVER] Error manejando cliente: {e}")
-    finally:
-        writer.close()
-        await writer.wait_closed()
+            # Leer datos del cliente
+            data = await reader.read(1024)
+            pedido = data.decode()
+            print(f"[SERVER] Pedido recibido: {pedido}")
 
-# --- Servidor dual-stack (IPv4 + IPv6) ---
-async def iniciar_servidor_dualstack(host, port):
+            # Intentar procesar el JSON
+            try:
+                pedido_data = json.loads(pedido)
+                cola_pedidos.put(pedido_data)
+                print(f"[SERVER] Pedido encolado: {pedido_data}")
+                writer.write("Pedido encolado\n".encode("utf-8"))
+            except json.JSONDecodeError:
+                writer.write("JSON inválido\n".encode("utf-8"))
+            await writer.drain()
+        except Exception as e:
+            print(f"[SERVER] Error manejando cliente: {e}")
+        finally:
+            writer.close()
+            await writer.wait_closed()
+
+    # socket dual-stack
     sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)  # Dual-stack habilitado
+    sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
     sock.bind((host, port))
     sock.listen(100)
     sock.setblocking(False)
@@ -108,6 +108,7 @@ async def iniciar_servidor_dualstack(host, port):
     print(f"[SERVER] Escuchando en modo dual-stack en {host}:{port}")
     async with server:
         await server.serve_forever()
+
 
 # --- Main principal ---
 def main():
@@ -133,7 +134,7 @@ def main():
         procesos.append(p)
 
     try:
-        asyncio.run(iniciar_servidor_dualstack(args.host, args.port))
+        asyncio.run(iniciar_servidor_dualstack(args.host, args.port,cola_pedidos))
     except KeyboardInterrupt:
         print("\n[SERVER] Cerrando servidor...")
     finally:
