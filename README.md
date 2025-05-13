@@ -19,7 +19,7 @@ Permite que múltiples clientes se conecten simultáneamente para enviar pedidos
 - SQLite (persistencia de pedidos)
 - Comunicación IPC mediante `multiprocessing.Queue`
 - Parseo de argumentos (`argparse`)
-- (Opcional) Docker para despliegue
+
 
 ---
 
