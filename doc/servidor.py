@@ -5,10 +5,44 @@ from multiprocessing import Queue, Process
 import argparse
 import time
 import socket
+import os
+import sqlite3
 
 
 # Cola compartida entre procesos
 cola_pedidos = Queue()
+
+# Inicializar base de datos SQLite
+DB_PATH = "db/pedidos.db"
+
+def inicializar_db():
+    os.makedirs("db", exist_ok=True)
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS pedidos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            cliente TEXT,
+            productos TEXT,
+            direccion TEXT,
+            timestamp TEXT
+        )
+    ''')
+    conn.commit()
+    conn.close()
+def guardar_en_db(pedido):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO pedidos (cliente, productos, direccion, timestamp) VALUES (?, ?, ?, datetime('now'))",
+        (
+            pedido.get("cliente", "desconocido"),
+            ", ".join(pedido.get("productos", [])),
+            pedido.get("direccion", "")
+        )
+    )
+    conn.commit()
+    conn.close()
 
 # --- Worker que procesa pedidos ---
 def worker(cola):
@@ -18,7 +52,8 @@ def worker(cola):
             break
         print(f"[WORKER] Procesando pedido: {pedido}")
         time.sleep(2)
-        print(f"[WORKER] Pedido completado: {pedido}")
+        guardar_en_db(pedido)
+        print(f"[WORKER] Pedido completado y guardado en la bd: {pedido}")
 
 # --- Función para manejar clientes ---
 async def manejar_cliente(reader, writer):
