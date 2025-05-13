@@ -36,7 +36,7 @@ async def manejar_cliente(reader, writer):
         pedido = data.decode()
         print(f"[SERVER] Pedido recibido: {pedido}")
 
-        # Intentar procesar el JSON
+        # Pedido en formato JSON
         try:
             pedido_data = json.loads(pedido)
             cola_pedidos.put(pedido_data)
