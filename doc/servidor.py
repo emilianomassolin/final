@@ -44,16 +44,25 @@ def guardar_en_db(pedido):
     conn.commit()
     conn.close()
 
-# --- Worker que procesa pedidos ---
-def worker(cola):
+# --- Proceso dedicado para manejar la base de datos ---
+def proceso_db(cola_db):
+    inicializar_db()  # Asegúrate de que la base de datos esté inicializada
     while True:
-        pedido = cola.get()
-        if pedido is None:
+        pedido = cola_db.get()
+        if pedido is None:  # Señal para terminar el proceso
+            break
+        guardar_en_db(pedido)
+
+# --- Worker que procesa pedidos ---
+def worker(cola_pedidos, cola_db):
+    while True:
+        pedido = cola_pedidos.get()
+        if pedido is None:  # Señal para terminar el worker
             break
         print(f"[WORKER] Procesando pedido: {pedido}")
-        time.sleep(2)
-        guardar_en_db(pedido)
-        print(f"[WORKER] Pedido completado y guardado en la bd: {pedido}")
+        time.sleep(2)  # Simula el procesamiento del pedido
+        cola_db.put(pedido)  # Envía el pedido a la cola de la base de datos
+        print(f"[WORKER] Pedido enviado a la base de datos: {pedido}")
 
 # --- Función para manejar clientes ---
 async def manejar_cliente(reader, writer):
@@ -100,7 +109,7 @@ async def iniciar_servidor_dualstack(host, port):
     async with server:
         await server.serve_forever()
 
-# --- Main principal con argumentos y procesos ---
+# --- Main principal ---
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="::")
@@ -108,10 +117,18 @@ def main():
     parser.add_argument("--workers", type=int, default=2)
     args = parser.parse_args()
 
+    # Crear colas
+    cola_db = Queue()  # Cola para la base de datos
+    cola_pedidos = Queue()  # Cola para los pedidos
+
+    # Crear proceso para la base de datos
+    proceso_base_datos = Process(target=proceso_db, args=(cola_db,))
+    proceso_base_datos.start()
+
     # Crear procesos worker
     procesos = []
     for _ in range(args.workers):
-        p = Process(target=worker, args=(cola_pedidos,))
+        p = Process(target=worker, args=(cola_pedidos, cola_db))
         p.start()
         procesos.append(p)
 
@@ -120,10 +137,16 @@ def main():
     except KeyboardInterrupt:
         print("\n[SERVER] Cerrando servidor...")
     finally:
+        # Finalizar workers
         for _ in procesos:
             cola_pedidos.put(None)
         for p in procesos:
             p.join()
+
+        # Finalizar proceso de base de datos
+        cola_db.put(None)
+        proceso_base_datos.join()
+
         print("[SERVER] Servidor finalizado.")
 
 if __name__ == "__main__":
