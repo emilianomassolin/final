@@ -73,7 +73,11 @@ async def iniciar_servidor_dualstack(host, port, cola_pedidos):
     async def manejar_cliente(reader, writer):
         try:
             # Enviar mensaje de bienvenida
-            writer.write("Bienvenido al Servidor de Pedidos\nEnvíe un JSON...\n".encode("utf-8"))
+            writer.write('Bienvenido al Servidor de Pedidos\nPor favor envíe un JSON válido del tipo \n'
+                     '{"cliente": "nombre",'
+                     '"productos": ["producto1", "producto2"],'
+                     '"direccion": "direccion"'
+                     '}\n'.encode("utf-8"))
             await writer.drain()
 
             # Leer datos del cliente
