@@ -7,6 +7,7 @@ import time
 import socket
 import os
 import sqlite3
+from datetime import datetime
 
 
 
@@ -60,11 +61,14 @@ def proceso_db(cola_db):
 
 # --- Worker que procesa pedidos ---
 def worker(cola_pedidos, cola_db):
+    pid=os.getpid()
     while True:
         pedido = cola_pedidos.get()
         if pedido is None:  # Señal para terminar el worker
+            print(f"[WORKER {pid}] Finalizando.")
             break
-        print(f"[WORKER] Procesando pedido: {pedido}")
+        t = datetime.now().strftime('%H:%M:%S')
+        print(f"[WORKER {pid}] Procesando {pedido} a las {t}")
         time.sleep(2)  # Simula el procesamiento del pedido
         cola_db.put(pedido)  # Envía el pedido a la cola de la base de datos
         print(f"[WORKER] Pedido enviado a la base de datos: {pedido}")
