@@ -72,6 +72,7 @@ def worker(cola_pedidos, cola_db):
         t = datetime.now().strftime('%H:%M:%S')
         print(f"[WORKER {pid}] Procesando {pedido} a las {t}")
         time.sleep(2)  # Simula el procesamiento del pedido
+        marcar_como_listo(pedido)
         cola_db.put(pedido)  # Envía el pedido a la cola de la base de datos
         print(f"[WORKER] Pedido enviado a la base de datos: {pedido}")
 
@@ -118,7 +119,25 @@ async def iniciar_servidor_dualstack(host, port, cola_pedidos):
     print(f"[SERVER] Escuchando en modo dual-stack en {host}:{port}")
     async with server:
         await server.serve_forever()
-
+# --- Funciones para marcar pedidos como listos ---
+def marcar_como_listo(pedido):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE pedidos SET estado = 'listo' WHERE cliente = ? AND direccion = ? AND productos = ?",
+            (
+                pedido.get("cliente", "desconocido"),
+                pedido.get("direccion", ""),
+                ", ".join(pedido.get("productos", []))
+            )
+        )
+        conn.commit()
+        print(f"[DB] Pedido marcado como 'listo': {pedido}")
+    except Exception as e:
+        print(f"[DB] Error al marcar como listo: {e}")
+    finally:
+        conn.close()
 
 # --- Main principal ---
 def main():
