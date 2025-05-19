@@ -73,10 +73,9 @@ def worker(cola_pedidos, cola_db):
         print(f"[WORKER {pid}] Procesando {pedido} a las {t}")
         time.sleep(2)  # Simula el procesamiento del pedido
         marcar_como_listo(pedido)
-        cola_db.put(pedido)  # Envía el pedido a la cola de la base de datos
         print(f"[WORKER] Pedido enviado a la base de datos: {pedido}")
 
-async def iniciar_servidor_dualstack(host, port, cola_pedidos):
+async def iniciar_servidor_dualstack(host, port, cola_pedidos,cola_db):
     async def manejar_cliente(reader, writer):
         try:
             # Enviar mensaje de bienvenida
@@ -95,6 +94,7 @@ async def iniciar_servidor_dualstack(host, port, cola_pedidos):
             # Intentar procesar el JSON
             try:
                 pedido_data = json.loads(pedido)
+                cola_db.put(pedido_data)
                 cola_pedidos.put(pedido_data)
                 print(f"[SERVER] Pedido encolado: {pedido_data}")
                 writer.write("Pedido encolado\n".encode("utf-8"))
@@ -163,7 +163,7 @@ def main():
         procesos.append(p)
 
     try:
-        asyncio.run(iniciar_servidor_dualstack(args.host, args.port,cola_pedidos))
+        asyncio.run(iniciar_servidor_dualstack(args.host, args.port,cola_pedidos,cola_db))
     except KeyboardInterrupt:
         print("\n[SERVER] Cerrando servidor...")
     finally:
