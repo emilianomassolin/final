@@ -25,7 +25,8 @@ def inicializar_db():
             cliente TEXT,
             productos TEXT,
             direccion TEXT,
-            timestamp TEXT
+            timestamp TEXT,
+                   estado TEXT 
         )
     ''')
     conn.commit()
@@ -35,15 +36,16 @@ def guardar_en_db(pedido):
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute(
-            "INSERT INTO pedidos (cliente, productos, direccion, timestamp) VALUES (?, ?, ?, datetime('now'))",
+            "INSERT INTO pedidos (cliente, productos, direccion, timestamp, estado) VALUES (?, ?, ?, datetime('now'),?)",
             (
                 pedido.get("cliente", "desconocido"),
                 ", ".join(pedido.get("productos", [])),
-                pedido.get("direccion", "")
+                pedido.get("direccion", ""),
+                "en proceso"
             )
         )
         conn.commit()
-        print(f"[DB] Pedido guardado: {pedido}")
+        print(f"[DB] Pedido guardado con estado en proceso: {pedido}")
     except Exception as e:
         print(f"[DB] Error al guardar el pedido: {e}")
     finally:
