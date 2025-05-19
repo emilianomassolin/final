@@ -125,13 +125,18 @@ def marcar_como_listo(pedido):
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute(
-            "UPDATE pedidos SET estado = 'listo' WHERE cliente = ? AND direccion = ? AND productos = ?",
+            '''
+            UPDATE pedidos
+            SET estado = 'listo',
+                timestamp = datetime('now')
+            WHERE cliente = ? AND direccion = ? AND productos = ?
+            ''',
             (
                 pedido.get("cliente", "desconocido"),
                 pedido.get("direccion", ""),
                 ", ".join(pedido.get("productos", []))
             )
-        )
+)
         conn.commit()
         print(f"[DB] Pedido marcado como 'listo': {pedido}")
     except Exception as e:
