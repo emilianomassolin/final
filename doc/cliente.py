@@ -2,10 +2,9 @@ import socket
 import argparse
 import json
 
-
 def main():
     parser = argparse.ArgumentParser(description="Cliente de pedidos")
-    parser.add_argument('--host', type=str, default='::1', help='IP del servidor')
+    parser.add_argument('--host', type=str, default='localhost', help='IP del servidor (IPv4 o IPv6)')
     parser.add_argument('--port', type=int, default=8888, help='Puerto del servidor')
     args = parser.parse_args()
 
@@ -16,32 +15,33 @@ def main():
 
     pedido = {
         "cliente": nombre,
-        "productos": productos.split(','),
+        "productos": [p.strip() for p in productos.split(',')],
         "direccion": direccion
     }
 
     try:
-        infos = socket.getaddrinfo(args.host, args.port, type=socket.SOCK_STREAM)
-        for info in infos:
-            af, socktype, proto, canonname, sa = info
+        # getaddrinfo busca automáticamente IPv6 e IPv4 según el host
+        infos = socket.getaddrinfo(args.host, args.port, proto=socket.IPPROTO_TCP, type=socket.SOCK_STREAM)
+
+        for af, socktype, proto, canonname, sa in infos:
             try:
                 with socket.socket(af, socktype, proto) as s:
                     s.connect(sa)
+                    print(f"Conectado a {sa} usando {'IPv6' if af == socket.AF_INET6 else 'IPv4'}")
+
                     mensaje = json.dumps(pedido).encode()
                     s.sendall(mensaje)
-                    print("Pedido enviado correctamente.")
 
-                    # Esperar la respuesta del servidor
                     respuesta = s.recv(1024).decode()
                     print(f"Respuesta del servidor: {respuesta}")
                     break
-            except OSError:
+            except OSError as err:
+                print(f"No se pudo conectar con {sa}: {err}")
                 continue
         else:
-            print("No se pudo conectar al servidor.")
+            print("❌ No se pudo establecer conexión con ninguna dirección (IPv4/IPv6).")
     except Exception as e:
-        print(f"Error al procesar el pedido: {e}")
-
+        print(f"⚠️ Error general al procesar el pedido: {e}")
 
 if __name__ == '__main__':
     main()
