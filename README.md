@@ -51,7 +51,7 @@ Permite que múltiples clientes se conecten simultáneamente para enviar pedidos
 
 ## Ejecutar el servidor
 ```bash
-python main.py --host :: --port 8888 --workers 2
+python servidor.py --host :: --port 8888 --workers 2
 
 ```
 ---
