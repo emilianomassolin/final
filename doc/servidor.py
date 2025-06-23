@@ -75,23 +75,17 @@ def worker(cola_pedidos, cola_db):
         marcar_como_listo(pedido)
         print(f"[WORKER] Pedido enviado a la base de datos: {pedido}")
 
-async def iniciar_servidor_dualstack(host, port, cola_pedidos,cola_db):
+async def iniciar_servidores_ipv4_ipv6(host_ipv6, host_ipv4, port, cola_pedidos, cola_db):
     async def manejar_cliente(reader, writer):
         try:
-            # Enviar mensaje de bienvenida
             writer.write('Bienvenido al Servidor de Pedidos\nPor favor envíe un JSON válido del tipo \n'
-                     '{"cliente": "nombre",'
-                     '"productos": ["producto1", "producto2"],'
-                     '"direccion": "direccion"'
-                     '}\n'.encode("utf-8"))
+                         '{"cliente": "nombre","productos": ["producto1", "producto2"],"direccion": "direccion"}\n'.encode("utf-8"))
             await writer.drain()
 
-            # Leer datos del cliente
             data = await reader.read(1024)
             pedido = data.decode()
             print(f"[SERVER] Pedido recibido: {pedido}")
 
-            # Intentar procesar el JSON
             try:
                 pedido_data = json.loads(pedido)
                 cola_db.put(pedido_data)
@@ -100,6 +94,7 @@ async def iniciar_servidor_dualstack(host, port, cola_pedidos,cola_db):
                 writer.write("Pedido encolado\n".encode("utf-8"))
             except json.JSONDecodeError:
                 writer.write("JSON inválido\n".encode("utf-8"))
+
             await writer.drain()
         except Exception as e:
             print(f"[SERVER] Error manejando cliente: {e}")
@@ -107,18 +102,33 @@ async def iniciar_servidor_dualstack(host, port, cola_pedidos,cola_db):
             writer.close()
             await writer.wait_closed()
 
-    # socket dual-stack
-    sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
-    sock.bind((host, port))
-    sock.listen(100)
-    sock.setblocking(False)
+    # Socket IPv6 puro
+    sock6 = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+    sock6.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock6.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)  # IPv6 only
+    sock6.bind((host_ipv6, port))
+    sock6.listen(100)
+    sock6.setblocking(False)
 
-    server = await asyncio.start_server(manejar_cliente, sock=sock)
-    print(f"[SERVER] Escuchando en modo dual-stack en {host}:{port}")
-    async with server:
-        await server.serve_forever()
+    # Socket IPv4 puro
+    sock4 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock4.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock4.bind((host_ipv4, port))
+    sock4.listen(100)
+    sock4.setblocking(False)
+
+    server_ipv6 = await asyncio.start_server(manejar_cliente, sock=sock6)
+    server_ipv4 = await asyncio.start_server(manejar_cliente, sock=sock4)
+
+    print(f"[SERVER] Escuchando en IPv6 {host_ipv6}:{port}")
+    print(f"[SERVER] Escuchando en IPv4 {host_ipv4}:{port}")
+
+    async with server_ipv6, server_ipv4:
+        await asyncio.gather(
+            server_ipv6.serve_forever(),
+            server_ipv4.serve_forever()
+        )
+
 # --- Funciones para marcar pedidos como listos ---
 def marcar_como_listo(pedido):
     try:
@@ -168,9 +178,10 @@ def main():
         procesos.append(p)
 
     try:
-        asyncio.run(iniciar_servidor_dualstack(args.host, args.port,cola_pedidos,cola_db))
+        asyncio.run(iniciar_servidores_ipv4_ipv6("::1", "127.0.0.1", args.port, cola_pedidos, cola_db))
     except KeyboardInterrupt:
         print("\n[SERVER] Cerrando servidor...")
+
     finally:
         # Finalizar workers
         for _ in procesos:
