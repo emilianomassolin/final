@@ -21,7 +21,8 @@ def inicializar_db():
             cliente TEXT,
             productos TEXT,
             direccion TEXT,
-            timestamp TEXT,
+            fecha_inicio TEXT,
+            fecha_fin TEXT,
             estado TEXT 
         )
     ''')
@@ -33,7 +34,7 @@ def guardar_en_db(pedido):
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute(
-            "INSERT INTO pedidos (cliente, productos, direccion, timestamp, estado) VALUES (?, ?, ?, datetime('now'),?)",
+            "INSERT INTO pedidos (cliente, productos, direccion, fecha_inicio, estado) VALUES (?, ?, ?, datetime('now'), ?)",
             (
                 pedido.get("cliente", "desconocido"),
                 ", ".join(pedido.get("productos", [])),
@@ -56,7 +57,7 @@ def marcar_como_listo(pedido):
             '''
             UPDATE pedidos
             SET estado = 'listo',
-                timestamp = datetime('now')
+                fecha_fin = datetime('now')
             WHERE cliente = ? AND direccion = ? AND productos = ?
             ''',
             (
@@ -65,8 +66,11 @@ def marcar_como_listo(pedido):
                 ", ".join(pedido.get("productos", []))
             )
         )
+        if cursor.rowcount == 0:
+            print(f"[DB] ⚠️ No se encontró el pedido para marcar como 'listo': {pedido}")
+        else:
+            print(f"[DB] Pedido marcado como 'listo': {pedido}")
         conn.commit()
-        print(f"[DB] Pedido marcado como 'listo': {pedido}")
     except Exception as e:
         print(f"[DB] Error al marcar como listo: {e}")
     finally:
@@ -82,12 +86,33 @@ def worker(cola_pedidos, db_lock):
             break
         t = datetime.now().strftime('%H:%M:%S')
         print(f"[WORKER {pid}] Procesando {pedido} a las {t}")
-        time.sleep(5)  # Simula procesamiento
-
         with db_lock:
             guardar_en_db(pedido)
+        time.sleep(2)  # Simula procesamiento
+
+        with db_lock:
             marcar_como_listo(pedido)
         print(f"[WORKER {pid}] Pedido procesado y guardado.")
+
+# --- Mostrar duración de pedidos ---
+def mostrar_estadisticas():
+    print("\n=== Estadísticas de Procesamiento ===")
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT cliente, fecha_inicio, fecha_fin,
+                   ROUND((JULIANDAY(fecha_fin) - JULIANDAY(fecha_inicio)) * 86400, 2) AS duracion_segundos
+            FROM pedidos
+            ORDER BY fecha_inicio
+        ''')
+        filas = cursor.fetchall()
+        for cliente, inicio, fin, duracion in filas:
+            print(f"🧾 {cliente} | Inicio: {inicio} | Fin: {fin} | Duración: {duracion} s")
+    except Exception as e:
+        print(f"[DB] Error al mostrar estadísticas: {e}")
+    finally:
+        conn.close()
 
 # --- Servidor con sockets IPv4 e IPv6 separados ---
 async def iniciar_servidores_ipv4_ipv6(host_ipv6, host_ipv4, port, cola_pedidos):
@@ -148,13 +173,13 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="::")
     parser.add_argument("--port", type=int, default=8888)
-    parser.add_argument("--workers", type=int, default=2)
+    parser.add_argument("--workers", type=int, default=3)
     args = parser.parse_args()
 
     inicializar_db()
 
     cola_pedidos = Queue()
-    db_lock = Lock()  # 🔐 Lock para sincronizar acceso a SQLite
+    db_lock = Lock()
 
     procesos = []
     for _ in range(args.workers):
@@ -173,6 +198,7 @@ def main():
             p.join()
 
         print("[SERVER] Servidor finalizado.")
+        mostrar_estadisticas()
 
 if __name__ == "__main__":
     main()
