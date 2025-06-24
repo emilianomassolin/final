@@ -12,25 +12,40 @@ Los clientes se conectan vía TCP (IPv4/IPv6) y envían pedidos en formato JSON.
 - `asyncio` (manejo de múltiples clientes concurrentes)
 - `multiprocessing` (procesos workers y de base de datos)
 - `sqlite3` (almacenamiento persistente)
-- `sockets TCP` con soporte **dual-stack** (IPv4/IPv6)
+- `sockets TCP` con soporte  (IPv4/IPv6)
 - `argparse` para configuración por línea de comandos
 
 ## Arquitectura
 
 - **Cliente:**  
-  - Se conecta al servidor mediante TCP/IP (ipv4 o ipv6 "dual stack").
-  - Envía datos de un pedido (cliente, productos, dirección).
-  - Puede configurarse mediante argumentos por consola (IP, puerto).
+  - Se conecta al servidor TCP (IPv4 o IPv6).
+  - Envía un pedido en JSON con: `cliente`, `productos`, `dirección`.
+  - Puede ejecutarse múltiples veces en paralelo para simular concurrencia.
+  - Configurable mediante argumentos (`--host`, `--port`).
 
 - **Servidor:**  
-  - Escucha múltiples clientes de forma concurrente usando async I/O.
-  - Recibe y encola pedidos utilizando mecanismos IPC (`multiprocessing.Queue`).
-  - Procesa los pedidos en paralelo mediante multiprocessing.process.
+  - Escucha en paralelo por sockets separados IPv4 e IPv6.
+  - Acepta múltiples conexiones simultáneas usando `asyncio`.
+  - Encola pedidos en `multiprocessing.Queue`.
+  - Lanza múltiples workers para procesar pedidos en paralelo.
+  - Protege el acceso a la base de datos con `multiprocessing.Lock`.
 
 - **Workers:**  
-  - Consumen pedidos de la cola.
-  - Simulan el procesamiento y entrega del pedido.
-  - Envian a la cola de la base de datos para que sean guardados y actualizados
+  - Simulan procesamiento de cada pedido (`time.sleep(...)`).
+  - Guardan en SQLite con `fecha_inicio` y `estado='en proceso'`.
+  - Luego actualizan a `estado='listo'` y registran `fecha_fin`.
+  - Permiten medir la duración de cada pedido procesado.
+
+## Métricas y Tiempos
+
+Cada pedido almacena:
+
+- `fecha_inicio`: cuándo se comenzó a procesar.
+- `fecha_fin`: cuándo se finalizó el pedido.
+- `duración`: calculada automáticamente en segundos.
+
+Esto permite verificar fácilmente si los pedidos se procesaron en paralelo (duraciones similares o `fecha_inicio` iguales).
+
 
 
 

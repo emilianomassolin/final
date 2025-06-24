@@ -5,59 +5,65 @@
 
 ## 🧾 Descripción
 
-Aplicación cliente-servidor escrita en Python para la gestión concurrente de pedidos, utilizando sockets TCP/IP, `asyncio`, multiprocessing y SQLite.
-Permite que múltiples clientes se conecten simultáneamente para enviar pedidos, los cuales son encolados y procesados en paralelo por un conjunto de workers.
+Aplicación cliente-servidor escrita en Python para la gestión concurrente de pedidos, utilizando sockets TCP/IP, `asyncio`, `multiprocessing` y `sqlite3`.  
+Permite que múltiples clientes se conecten simultáneamente para enviar pedidos, los cuales son procesados en paralelo por varios **workers**.  
+Cada pedido es almacenado en una base de datos SQLite con información de inicio y fin del procesamiento.
 
 ---
 
 ## 🧰 Tecnologías utilizadas
 
 - Python 3.10+
-- Sockets TCP/IP
-- Async I/O (`asyncio`)
-- Concurrencia y paralelismo (`multiprocessing`)
-- SQLite (persistencia de pedidos)
+- Sockets TCP/IP (IPv4 e IPv6 en sockets separados)
+- Async I/O (`asyncio`) para manejar múltiples clientes concurrentes
+- Procesamiento paralelo con `multiprocessing.Process`
 - Comunicación IPC mediante `multiprocessing.Queue`
-- Parseo de argumentos (`argparse`)
-
+- Exclusión mutua con `multiprocessing.Lock`
+- Base de datos SQLite (`sqlite3`)
+- Línea de comandos (`argparse`)
 
 ---
-
 ## 🧱 Arquitectura
 
-### 🔁 Cliente
+### 🧍 Cliente
 
-- Se conecta al servidor por TCP/IP.
-- Envía un pedido en formato JSON que contiene:
+- Se conecta al servidor por TCP (puede ser IPv4 o IPv6).
+- Envía un pedido en formato JSON con los siguientes datos:
   - Nombre del cliente
   - Lista de productos
   - Dirección de entrega
+- Configurable mediante argumentos: `--host`, `--port`.
 
-### 🧠 Servidor (asyncio)
+### 🧠 Servidor
 
-- Acepta múltiples conexiones concurrentes usando `asyncio`.
+- Escucha en paralelo por IPv4 (`127.0.0.1`) e IPv6 (`::1`).
+- Acepta múltiples conexiones concurrentes con `asyncio`.
 - Por cada pedido recibido:
-  - Lo valida y lo transforma en objeto Python.
-  - Lo encola en una cola compartida (`multiprocessing.Queue`).
+  - Lo valida (JSON).
+  - Lo encola en `multiprocessing.Queue`.
 
 ### 🔨 Workers
 
 - Procesos independientes.
 - Consumen pedidos desde la cola.
-- Simulan procesamiento (tiempo de espera).
-- Persisten el pedido en una base de datos SQLite (`db/pedidos.db`).
+- Simulan procesamiento (`time.sleep`).
+- Guardan en la base de datos:
+  - `fecha_inicio`: cuando comienza el procesamiento.
+  - `fecha_fin`: cuando termina.
+  - `estado`: `"en proceso"` → `"listo"`.
+- Protegen el acceso a la base con un `Lock` para evitar condiciones de carrera.
 
 ---
 
 ## Ejecutar el servidor
 ```bash
-python servidor.py --host :: --port 8888 --workers 2
+python3 servidor.py --host :: --port 8888 --workers 2
 
 ```
 ---
 ## Usar cliente
 ```bash
-python cliente.py
+python3 cliente.py
 
 ```
 ---

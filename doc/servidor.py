@@ -1,7 +1,7 @@
 import asyncio
 import json
 import multiprocessing
-from multiprocessing import Queue, Process
+from multiprocessing import Queue, Process, Lock
 import argparse
 import time
 import socket
@@ -9,10 +9,6 @@ import os
 import sqlite3
 from datetime import datetime
 
-
-
-
-# Inicializar base de datos SQLite
 DB_PATH = "db/pedidos.db"
 
 def inicializar_db():
@@ -25,18 +21,20 @@ def inicializar_db():
             cliente TEXT,
             productos TEXT,
             direccion TEXT,
-            timestamp TEXT,
-                   estado TEXT 
+            fecha_inicio TEXT,
+            fecha_fin TEXT,
+            estado TEXT 
         )
     ''')
     conn.commit()
     conn.close()
+
 def guardar_en_db(pedido):
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute(
-            "INSERT INTO pedidos (cliente, productos, direccion, timestamp, estado) VALUES (?, ?, ?, datetime('now'),?)",
+            "INSERT INTO pedidos (cliente, productos, direccion, fecha_inicio, estado) VALUES (?, ?, ?, datetime('now'), ?)",
             (
                 pedido.get("cliente", "desconocido"),
                 ", ".join(pedido.get("productos", [])),
@@ -51,31 +49,73 @@ def guardar_en_db(pedido):
     finally:
         conn.close()
 
-# --- Proceso dedicado para manejar la base de datos ---
-def proceso_db(cola_db):
-    inicializar_db()  # Asegúrate de que la base de datos esté inicializada
-    while True:
-        pedido = cola_db.get()
-        if pedido is None:  # Señal para terminar el proceso
-            break
-        print(f"[DB] Guardando pedido en la base de datos: {pedido}")
-        guardar_en_db(pedido)
+def marcar_como_listo(pedido):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            UPDATE pedidos
+            SET estado = 'listo',
+                fecha_fin = datetime('now')
+            WHERE cliente = ? AND direccion = ? AND productos = ?
+            ''',
+            (
+                pedido.get("cliente", "desconocido"),
+                pedido.get("direccion", ""),
+                ", ".join(pedido.get("productos", []))
+            )
+        )
+        if cursor.rowcount == 0:
+            print(f"[DB] ⚠️ No se encontró el pedido para marcar como 'listo': {pedido}")
+        else:
+            print(f"[DB] Pedido marcado como 'listo': {pedido}")
+        conn.commit()
+    except Exception as e:
+        print(f"[DB] Error al marcar como listo: {e}")
+    finally:
+        conn.close()
 
-# --- Worker que procesa pedidos ---
-def worker(cola_pedidos, cola_db):
-    pid=os.getpid()
+# --- Worker que procesa pedidos y guarda directamente en SQLite ---
+def worker(cola_pedidos, db_lock):
+    pid = os.getpid()
     while True:
         pedido = cola_pedidos.get()
-        if pedido is None:  # Señal para terminar el worker
+        if pedido is None:
             print(f"[WORKER {pid}] Finalizando.")
             break
         t = datetime.now().strftime('%H:%M:%S')
         print(f"[WORKER {pid}] Procesando {pedido} a las {t}")
-        time.sleep(2)  # Simula el procesamiento del pedido
-        marcar_como_listo(pedido)
-        print(f"[WORKER] Pedido enviado a la base de datos: {pedido}")
+        with db_lock:
+            guardar_en_db(pedido)
+        time.sleep(2)  # Simula procesamiento
 
-async def iniciar_servidores_ipv4_ipv6(host_ipv6, host_ipv4, port, cola_pedidos, cola_db):
+        with db_lock:
+            marcar_como_listo(pedido)
+        print(f"[WORKER {pid}] Pedido procesado y guardado.")
+
+# --- Mostrar duración de pedidos ---
+def mostrar_estadisticas():
+    print("\n=== Estadísticas de Procesamiento ===")
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT cliente, fecha_inicio, fecha_fin,
+                   ROUND((JULIANDAY(fecha_fin) - JULIANDAY(fecha_inicio)) * 86400, 2) AS duracion_segundos
+            FROM pedidos
+            ORDER BY fecha_inicio
+        ''')
+        filas = cursor.fetchall()
+        for cliente, inicio, fin, duracion in filas:
+            print(f"🧾 {cliente} | Inicio: {inicio} | Fin: {fin} | Duración: {duracion} s")
+    except Exception as e:
+        print(f"[DB] Error al mostrar estadísticas: {e}")
+    finally:
+        conn.close()
+
+# --- Servidor con sockets IPv4 e IPv6 separados ---
+async def iniciar_servidores_ipv4_ipv6(host_ipv6, host_ipv4, port, cola_pedidos):
     async def manejar_cliente(reader, writer):
         try:
             writer.write('Bienvenido al Servidor de Pedidos\nPor favor envíe un JSON válido del tipo \n'
@@ -88,7 +128,6 @@ async def iniciar_servidores_ipv4_ipv6(host_ipv6, host_ipv4, port, cola_pedidos,
 
             try:
                 pedido_data = json.loads(pedido)
-                cola_db.put(pedido_data)
                 cola_pedidos.put(pedido_data)
                 print(f"[SERVER] Pedido encolado: {pedido_data}")
                 writer.write("Pedido encolado\n".encode("utf-8"))
@@ -102,15 +141,15 @@ async def iniciar_servidores_ipv4_ipv6(host_ipv6, host_ipv4, port, cola_pedidos,
             writer.close()
             await writer.wait_closed()
 
-    # Socket IPv6 puro
+    # Socket IPv6
     sock6 = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
     sock6.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock6.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)  # IPv6 only
+    sock6.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
     sock6.bind((host_ipv6, port))
     sock6.listen(100)
     sock6.setblocking(False)
 
-    # Socket IPv4 puro
+    # Socket IPv4
     sock4 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock4.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock4.bind((host_ipv4, port))
@@ -129,71 +168,37 @@ async def iniciar_servidores_ipv4_ipv6(host_ipv6, host_ipv4, port, cola_pedidos,
             server_ipv4.serve_forever()
         )
 
-# --- Funciones para marcar pedidos como listos ---
-def marcar_como_listo(pedido):
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute(
-            '''
-            UPDATE pedidos
-            SET estado = 'listo',
-                timestamp = datetime('now')
-            WHERE cliente = ? AND direccion = ? AND productos = ?
-            ''',
-            (
-                pedido.get("cliente", "desconocido"),
-                pedido.get("direccion", ""),
-                ", ".join(pedido.get("productos", []))
-            )
-)
-        conn.commit()
-        print(f"[DB] Pedido marcado como 'listo': {pedido}")
-    except Exception as e:
-        print(f"[DB] Error al marcar como listo: {e}")
-    finally:
-        conn.close()
-
-# --- Main principal ---
+# --- Main ---
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="::")
     parser.add_argument("--port", type=int, default=8888)
-    parser.add_argument("--workers", type=int, default=2)
+    parser.add_argument("--workers", type=int, default=3)
     args = parser.parse_args()
 
-    # Crear colas
-    cola_db = Queue()  # Cola para la base de datos
-    cola_pedidos = Queue()  # Cola para los pedidos
+    inicializar_db()
 
-    # Crear proceso para la base de datos
-    proceso_base_datos = Process(target=proceso_db, args=(cola_db,))
-    proceso_base_datos.start()
+    cola_pedidos = Queue()
+    db_lock = Lock()
 
-    # Crear procesos worker
     procesos = []
     for _ in range(args.workers):
-        p = Process(target=worker, args=(cola_pedidos, cola_db))
+        p = Process(target=worker, args=(cola_pedidos, db_lock))
         p.start()
         procesos.append(p)
 
     try:
-        asyncio.run(iniciar_servidores_ipv4_ipv6("::1", "127.0.0.1", args.port, cola_pedidos, cola_db))
+        asyncio.run(iniciar_servidores_ipv4_ipv6("::1", "127.0.0.1", args.port, cola_pedidos))
     except KeyboardInterrupt:
         print("\n[SERVER] Cerrando servidor...")
-
     finally:
-        # Finalizar workers
         for _ in procesos:
             cola_pedidos.put(None)
         for p in procesos:
             p.join()
 
-        # Finalizar proceso de base de datos
-        cola_db.put(None)
-        proceso_base_datos.join()
-
         print("[SERVER] Servidor finalizado.")
+        mostrar_estadisticas()
 
 if __name__ == "__main__":
     main()
