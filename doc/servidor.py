@@ -1,7 +1,6 @@
 import asyncio
 import json
-import multiprocessing
-from multiprocessing import Queue, Process, Lock
+from multiprocessing import Queue, Process, Lock, Semaphore
 import argparse
 import time
 import socket
@@ -10,6 +9,7 @@ import sqlite3
 from datetime import datetime
 
 DB_PATH = "db/pedidos.db"
+MAX_PEDIDOS_EN_COLA = 2  # Límite máximo de pedidos en cola
 
 def inicializar_db():
     os.makedirs("db", exist_ok=True)
@@ -76,14 +76,15 @@ def marcar_como_listo(pedido):
     finally:
         conn.close()
 
-# --- Worker que procesa pedidos y guarda directamente en SQLite ---
-def worker(cola_pedidos, db_lock):
+# --- Worker ---
+def worker(cola_pedidos, db_lock, semaforo):
     pid = os.getpid()
     while True:
         pedido = cola_pedidos.get()
         if pedido is None:
             print(f"[WORKER {pid}] Finalizando.")
             break
+
         t = datetime.now().strftime('%H:%M:%S')
         print(f"[WORKER {pid}] Procesando {pedido} a las {t}")
         with db_lock:
@@ -94,7 +95,9 @@ def worker(cola_pedidos, db_lock):
             marcar_como_listo(pedido)
         print(f"[WORKER {pid}] Pedido procesado y guardado.")
 
-# --- Mostrar duración de pedidos ---
+        semaforo.release()  # Libera lugar en la cola lógica
+
+# --- Estadísticas ---
 def mostrar_estadisticas():
     print("\n=== Estadísticas de Procesamiento ===")
     try:
@@ -114,10 +117,17 @@ def mostrar_estadisticas():
     finally:
         conn.close()
 
-# --- Servidor con sockets IPv4 e IPv6 separados ---
-async def iniciar_servidores_ipv4_ipv6(host_ipv6, host_ipv4, port, cola_pedidos):
+# --- Servidor IPv4/IPv6 ---
+async def iniciar_servidores_ipv4_ipv6(host_ipv6, host_ipv4, port, cola_pedidos, semaforo):
     async def manejar_cliente(reader, writer):
         try:
+            if not semaforo.acquire(block=False):
+                writer.write("❌ Límite de pedidos alcanzado. Intente más tarde.\n".encode("utf-8"))
+                await writer.drain()
+                writer.close()
+                await writer.wait_closed()
+                return
+
             writer.write('Bienvenido al Servidor de Pedidos\nPor favor envíe un JSON válido del tipo \n'
                          '{"cliente": "nombre","productos": ["producto1", "producto2"],"direccion": "direccion"}\n'.encode("utf-8"))
             await writer.drain()
@@ -130,9 +140,10 @@ async def iniciar_servidores_ipv4_ipv6(host_ipv6, host_ipv4, port, cola_pedidos)
                 pedido_data = json.loads(pedido)
                 cola_pedidos.put(pedido_data)
                 print(f"[SERVER] Pedido encolado: {pedido_data}")
-                writer.write("Pedido encolado\n".encode("utf-8"))
+                writer.write("✅ Pedido encolado\n".encode("utf-8"))
             except json.JSONDecodeError:
-                writer.write("JSON inválido\n".encode("utf-8"))
+                writer.write("❌ JSON inválido\n".encode("utf-8"))
+                semaforo.release()  # Liberar si el JSON era inválido
 
             await writer.drain()
         except Exception as e:
@@ -180,15 +191,16 @@ def main():
 
     cola_pedidos = Queue()
     db_lock = Lock()
+    semaforo = Semaphore(MAX_PEDIDOS_EN_COLA)
 
     procesos = []
     for _ in range(args.workers):
-        p = Process(target=worker, args=(cola_pedidos, db_lock))
+        p = Process(target=worker, args=(cola_pedidos, db_lock, semaforo))
         p.start()
         procesos.append(p)
 
     try:
-        asyncio.run(iniciar_servidores_ipv4_ipv6("::1", "127.0.0.1", args.port, cola_pedidos))
+        asyncio.run(iniciar_servidores_ipv4_ipv6("::1", "127.0.0.1", args.port, cola_pedidos, semaforo))
     except KeyboardInterrupt:
         print("\n[SERVER] Cerrando servidor...")
     finally:

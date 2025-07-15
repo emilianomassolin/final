@@ -41,6 +41,9 @@ async def cliente(pedido_id):
         mensaje = json.dumps(pedido).encode()
         print(f"[TEST] Enviando pedido {pedido_id}: {pedido}")
 
+        # Simular llegada desfasada de pedidos
+        await asyncio.sleep(0.1 * pedido_id)  # 👈 Esto ayuda a que el límite se active
+
         writer.write(mensaje)
         await writer.drain()
 
@@ -51,6 +54,7 @@ async def cliente(pedido_id):
         await writer.wait_closed()
     except Exception as e:
         print(f"[TEST] Error al enviar pedido {pedido_id}: {e}")
+
 
 async def main():
     tareas = [cliente(i + 1) for i in range(10)]  # 10 clientes simultáneos
