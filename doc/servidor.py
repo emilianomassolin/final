@@ -9,7 +9,7 @@ import sqlite3
 from datetime import datetime
 
 DB_PATH = "db/pedidos.db"
-MAX_PEDIDOS_EN_COLA = 2  # Límite máximo de pedidos en cola
+MAX_PEDIDOS_EN_COLA = 5
 
 def inicializar_db():
     os.makedirs("db", exist_ok=True)
@@ -76,7 +76,6 @@ def marcar_como_listo(pedido):
     finally:
         conn.close()
 
-# --- Worker ---
 def worker(cola_pedidos, db_lock, semaforo):
     pid = os.getpid()
     while True:
@@ -89,15 +88,12 @@ def worker(cola_pedidos, db_lock, semaforo):
         print(f"[WORKER {pid}] Procesando {pedido} a las {t}")
         with db_lock:
             guardar_en_db(pedido)
-        time.sleep(2)  # Simula procesamiento
-
+        time.sleep(2)
         with db_lock:
             marcar_como_listo(pedido)
         print(f"[WORKER {pid}] Pedido procesado y guardado.")
+        semaforo.release()
 
-        semaforo.release()  # Libera lugar en la cola lógica
-
-# --- Estadísticas ---
 def mostrar_estadisticas():
     print("\n=== Estadísticas de Procesamiento ===")
     try:
@@ -117,8 +113,7 @@ def mostrar_estadisticas():
     finally:
         conn.close()
 
-# --- Servidor IPv4/IPv6 ---
-async def iniciar_servidores_ipv4_ipv6(host_ipv6, host_ipv4, port, cola_pedidos, semaforo):
+async def iniciar_servidores_dinamicos(hostname, port, cola_pedidos, semaforo):
     async def manejar_cliente(reader, writer):
         try:
             if not semaforo.acquire(block=False):
@@ -143,7 +138,7 @@ async def iniciar_servidores_ipv4_ipv6(host_ipv6, host_ipv4, port, cola_pedidos,
                 writer.write("✅ Pedido encolado\n".encode("utf-8"))
             except json.JSONDecodeError:
                 writer.write("❌ JSON inválido\n".encode("utf-8"))
-                semaforo.release()  # Liberar si el JSON era inválido
+                semaforo.release()
 
             await writer.drain()
         except Exception as e:
@@ -152,37 +147,45 @@ async def iniciar_servidores_ipv4_ipv6(host_ipv6, host_ipv4, port, cola_pedidos,
             writer.close()
             await writer.wait_closed()
 
-    # Socket IPv6
-    sock6 = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
-    sock6.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock6.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
-    sock6.bind((host_ipv6, port))
-    sock6.listen(100)
-    sock6.setblocking(False)
-
-    # Socket IPv4
-    sock4 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock4.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock4.bind((host_ipv4, port))
-    sock4.listen(100)
-    sock4.setblocking(False)
-
-    server_ipv6 = await asyncio.start_server(manejar_cliente, sock=sock6)
-    server_ipv4 = await asyncio.start_server(manejar_cliente, sock=sock4)
-
-    print(f"[SERVER] Escuchando en IPv6 {host_ipv6}:{port}")
-    print(f"[SERVER] Escuchando en IPv4 {host_ipv4}:{port}")
-
-    async with server_ipv6, server_ipv4:
-        await asyncio.gather(
-            server_ipv6.serve_forever(),
-            server_ipv4.serve_forever()
+    sockets = []
+    try:
+        infos = socket.getaddrinfo(
+            hostname,
+            port,
+            family=socket.AF_UNSPEC,  # ← IMPORTANTE: acepta IPv4 e IPv6
+            proto=socket.IPPROTO_TCP,
+            type=socket.SOCK_STREAM
         )
+        print("=== Direcciones devueltas por getaddrinfo ===")
+        for af, socktype, proto, canonname, sa in infos:
+         print(f"{'IPv6' if af == socket.AF_INET6 else 'IPv4'} → {sa}")
+        
+        for af, socktype, proto, canonname, sa in infos:
+            try:
+                sock = socket.socket(af, socktype, proto)
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                sock.bind(sa)
+                sock.listen(100)
+                sock.setblocking(False)
+                sockets.append((sock, af))
+            except Exception as e:
+                print(f"[SERVER] ⚠️ No se pudo abrir socket en {sa}: {e}")
+    except Exception as e:
+        print(f"[SERVER] ❌ Error en getaddrinfo: {e}")
+        return
 
-# --- Main ---
+    servidores = []
+    for sock, af in sockets:
+        server = await asyncio.start_server(manejar_cliente, sock=sock)
+        servidores.append(server)
+        ipver = "IPv6" if af == socket.AF_INET6 else "IPv4"
+        print(f"[SERVER] Escuchando en {ipver} {sock.getsockname()}")
+
+    await asyncio.gather(*(s.serve_forever() for s in servidores))
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--host", default="::")
+    parser.add_argument("--host", default="localhost")
     parser.add_argument("--port", type=int, default=8888)
     parser.add_argument("--workers", type=int, default=3)
     args = parser.parse_args()
@@ -200,7 +203,7 @@ def main():
         procesos.append(p)
 
     try:
-        asyncio.run(iniciar_servidores_ipv4_ipv6("::1", "127.0.0.1", args.port, cola_pedidos, semaforo))
+        asyncio.run(iniciar_servidores_dinamicos(args.host, args.port, cola_pedidos, semaforo))
     except KeyboardInterrupt:
         print("\n[SERVER] Cerrando servidor...")
     finally:
