@@ -1,0 +1,25 @@
+services:
+  servidor:
+    build:
+      context: .
+    environment:
+      - SERVER_HOST=0.0.0.0
+    env_file: .env.docker
+    ports:
+      - "8888:8888"
+    volumes:
+      - .:/app
+    command: python servidor.py
+
+  cliente:
+    build:
+      context: .
+    depends_on:
+      - servidor
+    environment:
+      - SERVER_HOST=servidor
+      - AUTO_CLIENTE=1
+    env_file: .env.docker
+    volumes:
+      - .:/app
+    command: python cliente.py
