@@ -1,10 +1,13 @@
 import asyncio
 import json
 import random
+from dotenv import load_dotenv
+import os
 import socket
 
-HOST = 'localhost'
-PORT = 8888
+load_dotenv()
+HOST = os.getenv("SERVER_HOST", "localhost")
+PORT = int(os.getenv("SERVER_PORT", 8888))
 
 productos_disponibles = ['pizza', 'empanadas', 'hamburguesa', 'pastas', 'ensalada']
 calles = ['Calle Falsa 123', 'Av. Siempre Viva 742', 'San Martín 1000', 'Belgrano 555']

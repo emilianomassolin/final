@@ -1,12 +1,19 @@
 import socket
 import argparse
+from dotenv import load_dotenv
+import os
 import json
 
 def main():
     parser = argparse.ArgumentParser(description="Cliente de pedidos")
     parser.add_argument('--host', type=str, default='localhost', help='IP del servidor (IPv4 o IPv6)')
     parser.add_argument('--port', type=int, default=8888, help='Puerto del servidor')
+    load_dotenv()
+    host_env = os.getenv('SERVER_HOST', 'localhost')
+    port_env = int(os.getenv('SERVER_PORT', 8888))
     args = parser.parse_args()
+    args.host = args.host or host_env
+    args.port = args.port or port_env
 
     print("=== Cliente de pedidos ===")
     nombre = input("Nombre del cliente: ")

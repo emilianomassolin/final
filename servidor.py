@@ -2,14 +2,16 @@ import asyncio
 import json
 from multiprocessing import Queue, Process, Lock, Semaphore
 import argparse
+from dotenv import load_dotenv
 import time
 import socket
 import os
 import sqlite3
 from datetime import datetime
 
-DB_PATH = "db/pedidos.db"
-MAX_PEDIDOS_EN_COLA = 5
+load_dotenv()
+DB_PATH = os.getenv("DB_PATH", "db/pedidos.db")
+MAX_PEDIDOS_EN_COLA = int(os.getenv("MAX_PEDIDOS_EN_COLA", "5"))
 
 def inicializar_db():
     os.makedirs("db", exist_ok=True)
@@ -185,9 +187,9 @@ async def iniciar_servidores_dinamicos(hostname, port, cola_pedidos, semaforo):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--host", default="localhost")
-    parser.add_argument("--port", type=int, default=8888)
-    parser.add_argument("--workers", type=int, default=3)
+    parser.add_argument("--host", default=os.getenv("SERVER_HOST", "localhost"))
+    parser.add_argument("--port", type=int, default=int(os.getenv("SERVER_PORT", 8888)))
+    parser.add_argument("--workers", type=int, default=int(os.getenv("WORKER_COUNT", 3)))
     args = parser.parse_args()
 
     inicializar_db()
