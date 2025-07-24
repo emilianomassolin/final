@@ -121,16 +121,18 @@ async def iniciar_servidores_dinamicos(hostname, port, cola_pedidos, semaforo):
             if not semaforo.acquire(block=False):
                 writer.write("❌ Límite de pedidos alcanzado. Intente más tarde.\n".encode("utf-8"))
                 await writer.drain()
+                await asyncio.sleep(0.1)  # Permite que el cliente lea el mensaje antes de cerrar
                 writer.close()
                 await writer.wait_closed()
                 return
 
-            writer.write('Bienvenido al Servidor de Pedidos\nPor favor envíe un JSON válido del tipo \n'
+            writer.write('📩 Bienvenido al Servidor de Pedidos\n'
+                         'Por favor envíe un JSON válido del tipo \n'
                          '{"cliente": "nombre","productos": ["producto1", "producto2"],"direccion": "direccion"}\n'.encode("utf-8"))
             await writer.drain()
 
             data = await reader.read(1024)
-            pedido = data.decode()
+            pedido = data.decode().strip()
             print(f"[SERVER] Pedido recibido: {pedido}")
 
             try:
@@ -140,11 +142,17 @@ async def iniciar_servidores_dinamicos(hostname, port, cola_pedidos, semaforo):
                 writer.write("✅ Pedido encolado\n".encode("utf-8"))
             except json.JSONDecodeError:
                 writer.write("❌ JSON inválido\n".encode("utf-8"))
+                print("[SERVER] ❌ JSON inválido recibido.")
                 semaforo.release()
-
             await writer.drain()
+
         except Exception as e:
-            print(f"[SERVER] Error manejando cliente: {e}")
+            print(f"[SERVER] ⚠️ Error manejando cliente: {e}")
+            try:
+                writer.write("⚠️ Error interno del servidor\n".encode("utf-8"))
+                await writer.drain()
+            except:
+                pass
         finally:
             writer.close()
             await writer.wait_closed()
@@ -154,14 +162,14 @@ async def iniciar_servidores_dinamicos(hostname, port, cola_pedidos, semaforo):
         infos = socket.getaddrinfo(
             hostname,
             port,
-            family=socket.AF_UNSPEC,  # ← IMPORTANTE: acepta IPv4 e IPv6
+            family=socket.AF_UNSPEC,
             proto=socket.IPPROTO_TCP,
             type=socket.SOCK_STREAM
         )
         print("=== Direcciones devueltas por getaddrinfo ===")
         for af, socktype, proto, canonname, sa in infos:
-         print(f"{'IPv6' if af == socket.AF_INET6 else 'IPv4'} → {sa}")
-        
+            print(f"{'IPv6' if af == socket.AF_INET6 else 'IPv4'} → {sa}")
+
         for af, socktype, proto, canonname, sa in infos:
             try:
                 sock = socket.socket(af, socktype, proto)

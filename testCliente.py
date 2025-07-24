@@ -39,9 +39,16 @@ async def cliente(pedido_id):
             "direccion": random.choice(calles)
         }
 
-        # Leer bienvenida del servidor
-        bienvenida = await reader.read(1024)
-        print(f"[TEST] 📩 Bienvenida del servidor:\n{bienvenida.decode().strip()}")
+        # Leer y mostrar cualquier mensaje inicial del servidor
+        mensaje_inicial = await reader.read(1024)
+        decoded = mensaje_inicial.decode().strip()
+        print(f"[TEST] 📩 Mensaje del servidor:\n{decoded}")
+
+        # Si el servidor rechazó antes de que enviemos el JSON, no seguimos
+        if "❌" in decoded:
+            writer.close()
+            await writer.wait_closed()
+            return
 
         print(f"[TEST] Enviando pedido {pedido_id}: {pedido}")
         await asyncio.sleep(0.1 * pedido_id)
