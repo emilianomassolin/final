@@ -23,3 +23,15 @@ services:
     volumes:
       - .:/app
     command: python cliente.py
+
+  testcliente:   # ✅ Nuevo servicio para pruebas automáticas
+    build:
+      context: .
+    depends_on:
+      - servidor
+    environment:
+      - SERVER_HOST=servidor
+    env_file: .env.docker
+    volumes:
+      - .:/app
+    command: python testCliente.py

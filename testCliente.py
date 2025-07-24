@@ -13,7 +13,6 @@ productos_disponibles = ['pizza', 'empanadas', 'hamburguesa', 'pastas', 'ensalad
 calles = ['Calle Falsa 123', 'Av. Siempre Viva 742', 'San Martín 1000', 'Belgrano 555']
 
 async def abrir_conexion_dualstack(host, port):
-    """Intenta abrir conexión con IPv6 y luego con IPv4."""
     try:
         infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP, type=socket.SOCK_STREAM)
         for af, socktype, proto, canonname, sa in infos:
@@ -26,10 +25,9 @@ async def abrir_conexion_dualstack(host, port):
                 return reader, writer
             except Exception as e:
                 print(f"[TEST] Falló conexión con {sa}: {e}")
-                continue
         raise ConnectionError("No se pudo conectar con IPv4 ni IPv6")
     except socket.gaierror as e:
-        raise ConnectionError(f"Error de resolución de DNS: {e}")
+        raise ConnectionError(f"Error de DNS: {e}")
 
 async def cliente(pedido_id):
     try:
@@ -41,26 +39,26 @@ async def cliente(pedido_id):
             "direccion": random.choice(calles)
         }
 
-        mensaje = json.dumps(pedido).encode()
+        # Leer bienvenida del servidor
+        bienvenida = await reader.read(1024)
+        print(f"[TEST] 📩 Bienvenida del servidor:\n{bienvenida.decode().strip()}")
+
         print(f"[TEST] Enviando pedido {pedido_id}: {pedido}")
+        await asyncio.sleep(0.1 * pedido_id)
 
-        # Simular llegada desfasada de pedidos
-        await asyncio.sleep(0.1 * pedido_id)  # 👈 Esto ayuda a que el límite se active
-
-        writer.write(mensaje)
+        writer.write(json.dumps(pedido).encode())
         await writer.drain()
 
         respuesta = await reader.read(1024)
-        print(f"[TEST] Respuesta del servidor: {respuesta.decode().strip()}")
+        print(f"[TEST] ✅ Respuesta del servidor: {respuesta.decode().strip()}")
 
         writer.close()
         await writer.wait_closed()
     except Exception as e:
-        print(f"[TEST] Error al enviar pedido {pedido_id}: {e}")
-
+        print(f"[TEST] ❌ Error al enviar pedido {pedido_id}: {e}")
 
 async def main():
-    tareas = [cliente(i + 1) for i in range(10)]  # 10 clientes simultáneos
+    tareas = [cliente(i + 1) for i in range(10)]
     await asyncio.gather(*tareas)
 
 if __name__ == "__main__":
